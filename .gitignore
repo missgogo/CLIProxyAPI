@@ -4,6 +4,8 @@ cli-proxy-api
 
 # Configuration
 config.yaml
+config.*.yaml
+!config.example.yaml
 .env
 
 # Generated content
@@ -12,6 +14,7 @@ logs/*
 conv/*
 temp/*
 refs/*
+*.log
 
 # Storage backends
 pgstore/*
@@ -24,6 +27,10 @@ static/*
 # Authentication data
 auths/*
 !auths/.gitkeep
+
+# Local deployment artifacts
+*.backup.exe
+cli-proxy-api-*-backup.exe
 
 # Documentation
 docs/*
