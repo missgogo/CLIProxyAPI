@@ -1,0 +1,80 @@
+name: build-linux-arm64
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refresh models catalog
+        run: |
+          git fetch --depth 1 https://github.com/router-for-me/models.git main
+          git show FETCH_HEAD:models.json > internal/registry/models/models.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate build metadata
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "COMMIT=$(git rev-parse --short HEAD)" >> "${GITHUB_ENV}"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_ENV}"
+
+      - name: Build linux arm64 binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build \
+            -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" \
+            -o dist/CLIProxyAPI-linux-arm64 \
+            ./cmd/server
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          cp LICENSE README.md README_CN.md config.example.yaml release/
+          cp dist/CLIProxyAPI-linux-arm64 release/CLIProxyAPI
+          tar -C release -czf "dist/CLIProxyAPI_${VERSION}_linux_aarch64.tar.gz" .
+          sha256sum "dist/CLIProxyAPI_${VERSION}_linux_aarch64.tar.gz" > "dist/CLIProxyAPI_${VERSION}_linux_aarch64.tar.gz.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CLIProxyAPI-linux-arm64-${{ env.VERSION }}
+          path: |
+            dist/CLIProxyAPI-linux-arm64
+            dist/CLIProxyAPI_${{ env.VERSION }}_linux_aarch64.tar.gz
+            dist/CLIProxyAPI_${{ env.VERSION }}_linux_aarch64.tar.gz.sha256
+          if-no-files-found: error
+
+      - name: Attach assets to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CLIProxyAPI_${{ env.VERSION }}_linux_aarch64.tar.gz
+            dist/CLIProxyAPI_${{ env.VERSION }}_linux_aarch64.tar.gz.sha256
