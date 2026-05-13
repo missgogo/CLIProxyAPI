@@ -247,6 +247,19 @@ nonstream-keepalive-interval: 0
 #   user-agent: "codex_cli_rs/0.114.0 (Mac OS 14.2.0; x86_64) vscode/1.111.0"
 #   beta-features: "multi_agent"
 
+# Force specific client-visible Codex models to use a specific OAuth plan when
+# both free/plus/team/pro auth files expose overlapping model names.
+# First matching rule wins. Patterns support '*' wildcards.
+# codex-plan-routing:
+#   - models:
+#       - "gpt-5"
+#       - "gpt-5-*"
+#     plan: "plus"
+#   - models:
+#       - "gpt-5.4-mini"
+#       - "gpt-4.1-mini"
+#     plan: "free"
+
 # OpenAI compatibility providers
 # openai-compatibility:
 #   - name: "openrouter" # The name of the provider; it will be used in the user agent and other places.

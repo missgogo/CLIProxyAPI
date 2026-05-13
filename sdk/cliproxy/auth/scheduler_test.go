@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
@@ -363,6 +364,76 @@ func TestManager_PickNextMixed_DisallowFreeAuthSkipsCodexFreePlan(t *testing.T) 
 	}
 	if got.ID != "codex-b-plus" {
 		t.Fatalf("pickNextMixed() auth.ID = %q, want %q", got.ID, "codex-b-plus")
+	}
+}
+
+func TestManager_PickNextMixed_CodexPlanRoutingForcesPlusPlan(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5"
+	registerSchedulerModels(t, "codex", model, "codex-a-free", "codex-b-plus")
+
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+	manager.runtimeConfig.Store(&internalconfig.Config{
+		CodexPlanRouting: []internalconfig.CodexPlanRoute{
+			{Models: []string{"gpt-5"}, Plan: "plus"},
+		},
+	})
+	manager.executors["codex"] = schedulerTestExecutor{}
+	if _, errRegister := manager.Register(context.Background(), &Auth{ID: "codex-a-free", Provider: "codex", Attributes: map[string]string{"plan_type": "free"}}); errRegister != nil {
+		t.Fatalf("Register(codex-a-free) error = %v", errRegister)
+	}
+	if _, errRegister := manager.Register(context.Background(), &Auth{ID: "codex-b-plus", Provider: "codex", Attributes: map[string]string{"plan_type": "plus"}}); errRegister != nil {
+		t.Fatalf("Register(codex-b-plus) error = %v", errRegister)
+	}
+
+	got, _, provider, errPick := manager.pickNextMixed(context.Background(), []string{"codex"}, model, cliproxyexecutor.Options{}, map[string]struct{}{})
+	if errPick != nil {
+		t.Fatalf("pickNextMixed() error = %v", errPick)
+	}
+	if got == nil {
+		t.Fatalf("pickNextMixed() auth = nil")
+	}
+	if provider != "codex" {
+		t.Fatalf("pickNextMixed() provider = %q, want %q", provider, "codex")
+	}
+	if got.ID != "codex-b-plus" {
+		t.Fatalf("pickNextMixed() auth.ID = %q, want %q", got.ID, "codex-b-plus")
+	}
+}
+
+func TestManager_PickNextMixed_CodexPlanRoutingForcesFreePlan(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5.4-mini"
+	registerSchedulerModels(t, "codex", model, "codex-a-free", "codex-b-plus")
+
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+	manager.runtimeConfig.Store(&internalconfig.Config{
+		CodexPlanRouting: []internalconfig.CodexPlanRoute{
+			{Models: []string{"gpt-5.4-*"}, Plan: "free"},
+		},
+	})
+	manager.executors["codex"] = schedulerTestExecutor{}
+	if _, errRegister := manager.Register(context.Background(), &Auth{ID: "codex-a-free", Provider: "codex", Attributes: map[string]string{"plan_type": "free"}}); errRegister != nil {
+		t.Fatalf("Register(codex-a-free) error = %v", errRegister)
+	}
+	if _, errRegister := manager.Register(context.Background(), &Auth{ID: "codex-b-plus", Provider: "codex", Attributes: map[string]string{"plan_type": "plus"}}); errRegister != nil {
+		t.Fatalf("Register(codex-b-plus) error = %v", errRegister)
+	}
+
+	got, _, provider, errPick := manager.pickNextMixed(context.Background(), []string{"codex"}, model, cliproxyexecutor.Options{}, map[string]struct{}{})
+	if errPick != nil {
+		t.Fatalf("pickNextMixed() error = %v", errPick)
+	}
+	if got == nil {
+		t.Fatalf("pickNextMixed() auth = nil")
+	}
+	if provider != "codex" {
+		t.Fatalf("pickNextMixed() provider = %q, want %q", provider, "codex")
+	}
+	if got.ID != "codex-a-free" {
+		t.Fatalf("pickNextMixed() auth.ID = %q, want %q", got.ID, "codex-a-free")
 	}
 }
 

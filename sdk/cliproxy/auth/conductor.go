@@ -1700,14 +1700,79 @@ func disallowFreeAuthFromMetadata(meta map[string]any) bool {
 	}
 }
 
-func isFreeCodexAuth(auth *Auth) bool {
+func matchesCodexPlan(auth *Auth, plan string) bool {
 	if auth == nil || auth.Attributes == nil {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(auth.Attributes["plan_type"]), "free")
+	return strings.EqualFold(strings.TrimSpace(auth.Attributes["plan_type"]), plan)
+}
+
+func isFreeCodexAuth(auth *Auth) bool {
+	return matchesCodexPlan(auth, "free")
+}
+
+func codexPlanRouteMatches(pattern, value string) bool {
+	if pattern == "" || value == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+
+	parts := strings.Split(pattern, "*")
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		segment := parts[i]
+		if segment == "" {
+			continue
+		}
+		idx := strings.Index(value, segment)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(segment):]
+	}
+	return true
+}
+
+func (m *Manager) forcedCodexPlanForModel(model string) string {
+	if m == nil {
+		return ""
+	}
+	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
+	if cfg == nil || len(cfg.CodexPlanRouting) == 0 {
+		return ""
+	}
+	base := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(model).ModelName))
+	if base == "" {
+		base = strings.ToLower(strings.TrimSpace(model))
+	}
+	if base == "" {
+		return ""
+	}
+	for i := range cfg.CodexPlanRouting {
+		entry := cfg.CodexPlanRouting[i]
+		for _, pattern := range entry.Models {
+			if codexPlanRouteMatches(pattern, base) {
+				return entry.Plan
+			}
+		}
+	}
+	return ""
 }
 
 func publishSelectedAuthMetadata(meta map[string]any, authID string) {
@@ -2865,6 +2930,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	forcedCodexPlan := m.forcedCodexPlanForModel(model)
 
 	m.mu.RLock()
 	executor, okExecutor := m.executors[provider]
@@ -2887,6 +2953,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
+			continue
+		}
+		if forcedCodexPlan != "" && strings.EqualFold(strings.TrimSpace(candidate.Provider), "codex") && !matchesCodexPlan(candidate, forcedCodexPlan) {
 			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(candidate) {
@@ -2961,6 +3030,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		return nil, nil, &Error{Code: "executor_not_found", Message: "executor not registered"}
 	}
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	forcedCodexPlan := m.forcedCodexPlanForModel(model)
 	for {
 		selected, errPick := m.scheduler.pickSingle(ctx, provider, model, opts, tried)
 		if errPick != nil && model != "" && shouldRetrySchedulerPick(errPick) {
@@ -2972,6 +3042,13 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 		}
 		if selected == nil {
 			return nil, nil, &Error{Code: "auth_not_found", Message: "selector returned no auth"}
+		}
+		if forcedCodexPlan != "" && strings.EqualFold(strings.TrimSpace(selected.Provider), "codex") && !matchesCodexPlan(selected, forcedCodexPlan) {
+			if tried == nil {
+				tried = make(map[string]struct{})
+			}
+			tried[selected.ID] = struct{}{}
+			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(selected) {
 			if tried == nil {
@@ -3000,6 +3077,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	forcedCodexPlan := m.forcedCodexPlanForModel(model)
 
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
@@ -3029,6 +3107,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
+			continue
+		}
+		if forcedCodexPlan != "" && strings.EqualFold(strings.TrimSpace(candidate.Provider), "codex") && !matchesCodexPlan(candidate, forcedCodexPlan) {
 			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(candidate) {
@@ -3142,6 +3223,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	}
 
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	forcedCodexPlan := m.forcedCodexPlanForModel(model)
 	for {
 		selected, providerKey, errPick := m.scheduler.pickMixed(ctx, eligibleProviders, model, opts, tried)
 		if errPick != nil && model != "" && shouldRetrySchedulerPick(errPick) {
@@ -3153,6 +3235,13 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 		}
 		if selected == nil {
 			return nil, nil, "", &Error{Code: "auth_not_found", Message: "selector returned no auth"}
+		}
+		if forcedCodexPlan != "" && strings.EqualFold(strings.TrimSpace(selected.Provider), "codex") && !matchesCodexPlan(selected, forcedCodexPlan) {
+			if tried == nil {
+				tried = make(map[string]struct{})
+			}
+			tried[selected.ID] = struct{}{}
+			continue
 		}
 		if disallowFreeAuth && isFreeCodexAuth(selected) {
 			if tried == nil {

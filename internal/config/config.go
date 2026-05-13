@@ -143,6 +143,10 @@ type Config struct {
 	// gemini-api-key, codex-api-key, claude-api-key, openai-compatibility, vertex-api-key, and ampcode.
 	OAuthModelAlias map[string][]OAuthModelAlias `yaml:"oauth-model-alias,omitempty" json:"oauth-model-alias,omitempty"`
 
+	// CodexPlanRouting forces matching request models to use a specific Codex OAuth plan
+	// (for example "free" or "plus") when multiple Codex auth files expose the same model.
+	CodexPlanRouting []CodexPlanRoute `yaml:"codex-plan-routing,omitempty" json:"codex-plan-routing,omitempty"`
+
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
 
@@ -248,6 +252,13 @@ type OAuthModelAlias struct {
 	Name  string `yaml:"name" json:"name"`
 	Alias string `yaml:"alias" json:"alias"`
 	Fork  bool   `yaml:"fork,omitempty" json:"fork,omitempty"`
+}
+
+// CodexPlanRoute binds one or more model patterns to a required Codex OAuth plan.
+// Patterns follow the same wildcard rules as excluded-models: '*' matches any substring.
+type CodexPlanRoute struct {
+	Models []string `yaml:"models" json:"models"`
+	Plan   string   `yaml:"plan" json:"plan"`
 }
 
 // AmpModelMapping defines a model name mapping for Amp CLI requests.
@@ -725,6 +736,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize global OAuth model name aliases.
 	cfg.SanitizeOAuthModelAlias()
 
+	// Normalize Codex model -> plan routing rules.
+	cfg.SanitizeCodexPlanRouting()
+
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 
@@ -862,6 +876,24 @@ func (cfg *Config) SanitizeOAuthModelAlias() {
 		}
 	}
 	cfg.OAuthModelAlias = out
+}
+
+// SanitizeCodexPlanRouting normalizes model patterns and plan names, and drops empty rules.
+func (cfg *Config) SanitizeCodexPlanRouting() {
+	if cfg == nil || len(cfg.CodexPlanRouting) == 0 {
+		return
+	}
+	out := cfg.CodexPlanRouting[:0]
+	for i := range cfg.CodexPlanRouting {
+		entry := cfg.CodexPlanRouting[i]
+		entry.Models = NormalizeExcludedModels(entry.Models)
+		entry.Plan = strings.ToLower(strings.TrimSpace(entry.Plan))
+		if len(entry.Models) == 0 || entry.Plan == "" {
+			continue
+		}
+		out = append(out, entry)
+	}
+	cfg.CodexPlanRouting = out
 }
 
 // SanitizeOpenAICompatibility removes OpenAI-compatibility provider entries that are
