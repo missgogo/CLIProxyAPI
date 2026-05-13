@@ -2931,6 +2931,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 	forcedCodexPlan := m.forcedCodexPlanForModel(model)
+	if disallowFreeAuth && strings.EqualFold(forcedCodexPlan, "free") {
+		forcedCodexPlan = ""
+	}
 
 	m.mu.RLock()
 	executor, okExecutor := m.executors[provider]
@@ -3031,6 +3034,9 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	}
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 	forcedCodexPlan := m.forcedCodexPlanForModel(model)
+	if disallowFreeAuth && strings.EqualFold(forcedCodexPlan, "free") {
+		forcedCodexPlan = ""
+	}
 	for {
 		selected, errPick := m.scheduler.pickSingle(ctx, provider, model, opts, tried)
 		if errPick != nil && model != "" && shouldRetrySchedulerPick(errPick) {
@@ -3078,6 +3084,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 	forcedCodexPlan := m.forcedCodexPlanForModel(model)
+	if disallowFreeAuth && strings.EqualFold(forcedCodexPlan, "free") {
+		forcedCodexPlan = ""
+	}
 
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
@@ -3224,6 +3233,9 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
 	forcedCodexPlan := m.forcedCodexPlanForModel(model)
+	if disallowFreeAuth && strings.EqualFold(forcedCodexPlan, "free") {
+		forcedCodexPlan = ""
+	}
 	for {
 		selected, providerKey, errPick := m.scheduler.pickMixed(ctx, eligibleProviders, model, opts, tried)
 		if errPick != nil && model != "" && shouldRetrySchedulerPick(errPick) {
