@@ -161,12 +161,29 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	ApplyAuthExcludedModelsMeta(a, cfg, perAccountExcluded, "oauth")
 	// For codex auth files, extract plan_type from the JWT id_token.
 	if provider == "codex" {
+		planType := ""
 		if idTokenRaw, ok := metadata["id_token"].(string); ok && strings.TrimSpace(idTokenRaw) != "" {
 			if claims, errParse := codex.ParseJWTToken(idTokenRaw); errParse == nil && claims != nil {
 				if pt := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); pt != "" {
-					a.Attributes["plan_type"] = pt
+					planType = strings.ToLower(pt)
 				}
 			}
+		}
+		if planType == "" {
+			if pt, ok := metadata["plan_type"].(string); ok && strings.TrimSpace(pt) != "" {
+				planType = strings.ToLower(strings.TrimSpace(pt))
+			}
+		}
+		if planType == "" {
+			if pt, ok := metadata["planType"].(string); ok && strings.TrimSpace(pt) != "" {
+				planType = strings.ToLower(strings.TrimSpace(pt))
+			}
+		}
+		if planType == "" {
+			planType = inferCodexPlanTypeFromFilename(filepath.Base(fullPath))
+		}
+		if planType != "" {
+			a.Attributes["plan_type"] = planType
 		}
 	}
 	if provider == "gemini-cli" {
@@ -181,6 +198,25 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		}
 	}
 	return []*coreauth.Auth{a}
+}
+
+func inferCodexPlanTypeFromFilename(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	lower = strings.TrimSuffix(lower, ".json")
+	switch {
+	case strings.HasSuffix(lower, "-plus"):
+		return "plus"
+	case strings.HasSuffix(lower, "-pro"):
+		return "pro"
+	case strings.HasSuffix(lower, "-team"):
+		return "team"
+	case strings.HasSuffix(lower, "-business"):
+		return "business"
+	case strings.HasSuffix(lower, "-go"):
+		return "go"
+	default:
+		return "free"
+	}
 }
 
 // SynthesizeGeminiVirtualAuths creates virtual Auth entries for multi-project Gemini credentials.

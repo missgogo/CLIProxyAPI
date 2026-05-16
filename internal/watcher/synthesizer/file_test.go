@@ -131,6 +131,39 @@ func TestFileSynthesizer_Synthesize_ValidAuthFile(t *testing.T) {
 	}
 }
 
+func TestSynthesizeAuthFile_CodexPlanTypeFallsBackToFilename(t *testing.T) {
+	ctx := &SynthesisContext{
+		Config:      &config.Config{},
+		AuthDir:     t.TempDir(),
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	freeData, _ := json.Marshal(map[string]any{
+		"type":  "codex",
+		"email": "free@example.com",
+	})
+	freeAuths := SynthesizeAuthFile(ctx, filepath.Join(ctx.AuthDir, "free@example.com.json"), freeData)
+	if len(freeAuths) != 1 {
+		t.Fatalf("expected 1 free auth, got %d", len(freeAuths))
+	}
+	if got := strings.TrimSpace(freeAuths[0].Attributes["plan_type"]); got != "free" {
+		t.Fatalf("free auth plan_type = %q, want %q", got, "free")
+	}
+
+	plusData, _ := json.Marshal(map[string]any{
+		"type":  "codex",
+		"email": "plus@example.com",
+	})
+	plusAuths := SynthesizeAuthFile(ctx, filepath.Join(ctx.AuthDir, "plus@example.com-plus.json"), plusData)
+	if len(plusAuths) != 1 {
+		t.Fatalf("expected 1 plus auth, got %d", len(plusAuths))
+	}
+	if got := strings.TrimSpace(plusAuths[0].Attributes["plan_type"]); got != "plus" {
+		t.Fatalf("plus auth plan_type = %q, want %q", got, "plus")
+	}
+}
+
 func TestFileSynthesizer_Synthesize_GeminiProviderMapping(t *testing.T) {
 	tempDir := t.TempDir()
 
